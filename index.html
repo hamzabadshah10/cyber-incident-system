@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Operations Center - Employee Terminal</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+    <!-- Persistent Side Alert -->
+    <div id="sideThreatAlert">
+        <h3>⚠️ ACTIVE THREAT RADAR</h3>
+        <p id="sideThreatMessage">No new threats.</p>
+    </div>
+
+    <div class="header">
+        <h1 data-text="SECURITY OPERATIONS CENTER // UPLINK">SECURITY OPERATIONS CENTER // UPLINK</h1>
+        <p>[ Secure Employee Threat Reporting Interface ]</p>
+    </div>
+
+    <div class="main-grid">
+        <!-- Reporting Panel -->
+        <div class="glass-panel">
+            <h2>> Report Cyber Incident</h2>
+
+            <div id="userThreatAlert">
+                <h3>⚠️ Critical Threat Logged</h3>
+                <p>AI Assessment: <strong id="alertSeverity">High</strong> severity. Security Operations Center team
+                    notified.</p>
+            </div>
+
+            <form id="incidentForm">
+                <div class="form-group">
+                    <label for="type">Incident Category</label>
+                    <select id="type" required>
+                        <option value="">Select category...</option>
+                        <option value="Phishing">Phishing / Suspicious Email</option>
+                        <option value="Malware">Malware / Virus</option>
+                        <option value="Unauthorized Access">Unauthorized Account Access</option>
+                        <option value="Data Breach">Data Leak / Breach</option>
+                        <option value="Social Engineering">Social Engineering</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Detailed Description</label>
+                    <textarea id="description" rows="6" required
+                        placeholder="Describe what happened, any error messages, affected systems, or indicators of compromise..."></textarea>
+                </div>
+
+                <button type="submit" id="submitBtn">Transmit Threat</button>
+            </form>
+
+            <div id="toastMessage" class="toast"></div>
+        </div>
+
+        <!-- Tracking Panel -->
+        <div class="glass-panel">
+            <h2>> My Transmissions</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Category</th>
+                        <th>Severity</th>
+                        <th>Status</th>
+                        <th>Timestamp</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="incidentTableBody">
+                    <tr>
+                        <td colspan="6" class="empty-state">Establishing secure connection...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // --- Incident Reporting Logic ---
+        document.getElementById('incidentForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const type = document.getElementById('type').value;
+            const description = document.getElementById('description').value;
+            const toast = document.getElementById('toastMessage');
+            const btn = document.getElementById('submitBtn');
+            const alertBox = document.getElementById('userThreatAlert');
+
+            btn.disabled = true;
+            btn.innerText = "Transmitting...";
+            toast.style.display = 'none';
+            alertBox.style.display = 'none';
+
+            try {
+                const response = await fetch('api/report_incident.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type, description })
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    document.getElementById('incidentForm').reset();
+
+                    // Show critical alert to user if AI flags it
+                    if (data.data.severity === 'High' || data.data.severity === 'Critical') {
+                        document.getElementById('alertSeverity').innerText = data.data.severity;
+                        alertBox.style.display = 'block';
+                    } else {
+                        toast.className = 'toast success';
+                        toast.innerHTML = `Transmission successful. AI Severity: <strong>${data.data.severity}</strong>`;
+                        toast.style.display = 'block';
+                    }
+
+                    // Refresh table immediately
+                    loadMyIncidents();
+                } else {
+                    toast.className = 'toast error';
+                    toast.innerText = `Error: ${data.message}`;
+                    toast.style.display = 'block';
+                }
+            } catch (error) {
+                toast.className = 'toast error';
+                toast.innerText = 'Network communication failed.';
+                toast.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Transmit Data";
+                setTimeout(() => { toast.style.display = 'none'; }, 5000);
+            }
+        });
+
+        // --- Incident Tracking Logic ---
+        async function loadMyIncidents() {
+            try {
+                const response = await fetch('api/get_incidents.php?role=employee');
+                const result = await response.json();
+
+                const tbody = document.getElementById('incidentTableBody');
+                tbody.innerHTML = '';
+
+                let activeHighThreatsCount = 0;
+
+                if (result.status === 'success' && result.data.length > 0) {
+                    let seq = 1;
+                    result.data.forEach(inc => {
+                        if ((inc.severity === 'High' || inc.severity === 'Critical') && inc.status !== 'Resolved') {
+                            activeHighThreatsCount++;
+                        }
+
+                        const tr = document.createElement('tr');
+                        const sevClass = inc.severity.toLowerCase();
+                        const statusClass = inc.status.toLowerCase();
+
+                        tr.innerHTML = `
+                    <td>#${seq++}</td>
+                    <td>${inc.type}</td>
+                    <td><span class="badge ${sevClass}">${inc.severity}</span></td>
+                    <td><span class="status-badge ${statusClass}">${inc.status}</span></td>
+                    <td>${new Date(inc.created_at).toLocaleString()}</td>
+                    <td><button class="btn-delete" onclick="deleteIncident(${inc.id})">Withdraw</button></td>
+                `;
+                        tbody.appendChild(tr);
+                    });
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">No transmissions found.</td></tr>`;
+                }
+
+                updateSideAlert(activeHighThreatsCount);
+
+            } catch (e) {
+                console.error("Failed to load incidents", e);
+            }
+        }
+
+        function updateSideAlert(count) {
+            const sideAlert = document.getElementById('sideThreatAlert');
+            if (count > 0) {
+                document.getElementById('sideThreatMessage').innerText = `You have ${count} Active High/Critical Threat(s) awaiting resolution by Security Operations Center.`;
+                sideAlert.style.display = 'block';
+            } else {
+                sideAlert.style.display = 'none';
+            }
+        }
+
+        // --- Delete Logic ---
+        async function deleteIncident(id) {
+            if (!confirm("Are you sure you want to withdraw this incident report?")) return;
+
+            try {
+                const response = await fetch('api/delete_incident.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    loadMyIncidents();
+                } else {
+                    alert("Failed to delete: " + result.message);
+                }
+            } catch (e) {
+                alert("Network error.");
+            }
+        }
+
+        // Initial load
+        loadMyIncidents();
+        setInterval(loadMyIncidents, 10000);
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,35 @@
+<?php
+header('Content-Type: application/json');
+require_once 'db.php';
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(["status" => "error", "message" => "Method not allowed"]);
+    exit;
+}
+
+$data = json_decode(file_get_contents('php://input'), true);
+$id = $data['id'] ?? null;
+
+if (!$id) {
+    http_response_code(400);
+    echo json_encode(["status" => "error", "message" => "Missing incident ID"]);
+    exit;
+}
+
+try {
+    $stmt = $pdo->prepare("DELETE FROM incidents WHERE id = ?");
+    $stmt->execute([$id]);
+
+    if ($stmt->rowCount() > 0) {
+        http_response_code(200);
+        echo json_encode(["status" => "success", "message" => "Incident deleted"]);
+    } else {
+        http_response_code(404);
+        echo json_encode(["status" => "error", "message" => "Incident not found"]);
+    }
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode(["status" => "error", "message" => "Failed to delete incident"]);
+}
+?>

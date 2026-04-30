@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Operations Center - Global Command Center</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- Critical Threat Overlay (Full Screen) -->
+<div id="threatOverlay">
+    <div id="threatModal">
+        <h1>🚨 SYSTEM ALERT</h1>
+        <p id="threatMessage">A new high-severity incident has been logged.</p>
+        <button class="dismiss-btn" onclick="dismissFullScreenAlert()">Acknowledge & Transfer to Radar</button>
+    </div>
+</div>
+
+<!-- Persistent Side Alert -->
+<div id="sideThreatAlert">
+    <h3>⚠️ ACTIVE THREAT RADAR</h3>
+    <p id="sideThreatMessage">No new threats.</p>
+</div>
+
+<div class="container">
+    <div class="header">
+        <h1 data-text="SECURITY OPERATIONS CENTER // GLOBAL RADAR">SECURITY OPERATIONS CENTER // GLOBAL RADAR</h1>
+        <p>[ Security Operations Dashboard ]</p>
+    </div>
+
+    <div class="glass-panel">
+        <h2>> Global Incident Log</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th>Severity</th>
+                    <th>Timestamp</th>
+                    <th>Status Action</th>
+                    <th>Execute</th>
+                </tr>
+            </thead>
+            <tbody id="incidentTableBody">
+                <tr><td colspan="7" class="empty-state">Initializing Secure Connection...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+let lastCheckTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
+let hasSeenFullScreenAlert = false;
+
+// Initialize alert sound (optional if browser allows)
+const alertAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAwAD'); 
+
+// Load all incidents
+async function loadIncidents() {
+    try {
+        const response = await fetch('api/get_incidents.php'); // Admin gets all
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            renderTable(result.data);
+        }
+    } catch (e) {
+        console.error("Failed to load incidents");
+    }
+}
+
+function getStatusClass(status) {
+    switch(status) {
+        case 'Pending': return 'pending';
+        case 'Investigating': return 'investigating';
+        case 'Resolved': return 'resolved';
+        default: return '';
+    }
+}
+
+function renderTable(incidents) {
+    const tbody = document.getElementById('incidentTableBody');
+    tbody.innerHTML = '';
+    
+    let activeHighThreatsCount = 0;
+
+    if(incidents.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No incidents in database.</td></tr>`;
+        updateSideAlert(0);
+        return;
+    }
+
+    let seq = 1;
+    incidents.forEach(inc => {
+        if ((inc.severity === 'High' || inc.severity === 'Critical') && inc.status !== 'Resolved') {
+            activeHighThreatsCount++;
+        }
+
+        const tr = document.createElement('tr');
+        const sevClass = inc.severity.toLowerCase();
+        const statusClass = getStatusClass(inc.status);
+        
+        tr.innerHTML = `
+            <td>#${seq++}</td>
+            <td><strong>${inc.type}</strong></td>
+            <td>
+                ${inc.description}
+            </td>
+            <td><span class="badge ${sevClass}">${inc.severity}</span></td>
+            <td>${new Date(inc.created_at).toLocaleString()}</td>
+            <td>
+                <select class="status-select ${statusClass}" onchange="updateStatus(${inc.id}, this.value, this)">
+                    <option value="Pending" ${inc.status === 'Pending' ? 'selected' : ''}>Pending</option>
+                    <option value="Investigating" ${inc.status === 'Investigating' ? 'selected' : ''}>Investigating</option>
+                    <option value="Resolved" ${inc.status === 'Resolved' ? 'selected' : ''}>Resolved</option>
+                </select>
+            </td>
+            <td>
+                <button class="btn-delete" onclick="deleteIncident(${inc.id})">PURGE</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    updateSideAlert(activeHighThreatsCount);
+}
+
+function updateSideAlert(count) {
+    const sideAlert = document.getElementById('sideThreatAlert');
+    if (count > 0) {
+        document.getElementById('sideThreatMessage').innerText = `${count} Active High/Critical Threat(s) Unresolved.`;
+        sideAlert.style.display = 'block';
+    } else {
+        sideAlert.style.display = 'none';
+    }
+}
+
+// Update Status via AJAX
+async function updateStatus(id, status, selectElement) {
+    try {
+        await fetch('api/update_status.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, status })
+        });
+        
+        selectElement.className = `status-select ${getStatusClass(status)}`;
+        // Instantly reload incidents to update the radar count
+        loadIncidents();
+    } catch (e) {
+        console.error("Failed to update status");
+    }
+}
+
+// Delete Logic
+async function deleteIncident(id) {
+    if(!confirm(`CRITICAL: Are you sure you want to purge Incident #${id} from the database?`)) return;
+    
+    try {
+        const response = await fetch('api/delete_incident.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        });
+        const result = await response.json();
+        if(result.status === 'success') {
+            loadIncidents();
+        } else {
+            alert("Failed to purge: " + result.message);
+        }
+    } catch(e) {
+        alert("Network error.");
+    }
+}
+
+// Real-Time Polling for Alerts
+async function pollAlerts() {
+    try {
+        const response = await fetch(`api/poll_alerts.php?last_check=${encodeURIComponent(lastCheckTime)}`);
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            lastCheckTime = result.timestamp;
+            
+            if (result.alerts && result.alerts.length > 0) {
+                const latestAlert = result.alerts[0];
+                triggerAlert(latestAlert);
+                loadIncidents(); // Refresh table immediately
+            }
+        }
+    } catch (e) {
+        console.error("Polling failed");
+    }
+}
+
+function triggerAlert(alertData) {
+    if (!hasSeenFullScreenAlert) {
+        // Show Full Screen First Time
+        const msg = `New ${alertData.severity} threat detected: ${alertData.type} (ID: #${alertData.id})`;
+        document.getElementById('threatMessage').innerText = msg;
+        document.getElementById('threatOverlay').style.display = 'block';
+        try { alertAudio.play(); } catch(e) {}
+    }
+}
+
+function dismissFullScreenAlert() {
+    document.getElementById('threatOverlay').style.display = 'none';
+    hasSeenFullScreenAlert = true; // Mark as seen
+    // Radar side-alert is automatically shown by loadIncidents()
+}
+
+// Initialization
+loadIncidents();
+
+// Poll every 5 seconds
+setInterval(pollAlerts, 5000);
+// Refresh full list periodically
+setInterval(loadIncidents, 10000); 
+</script>
+
+</body>
+</html>
