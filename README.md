@@ -122,17 +122,3 @@ if (!empty($data['description'])) {
 }
 ?>
 ```
-
-## 9. System Overview and Screenshots
-
-### 9.1 Database Implementation
-*(Insert screenshot of your MySQL database/phpMyAdmin showing the `incidents` and related tables here)*
-
-### 9.2 Running Frontend (Employee Portal)
-*(Insert screenshot of the Employee Portal showing the incident reporting form and the user interface here)*
-
-### 9.3 Administrator Dashboard & Threat Alerts
-*(Insert screenshot of the Admin Dashboard showing the active threat radar, incident list, and real-time alerts here)*
-
-### 9.4 Action Execution
-*(Insert screenshot demonstrating an action, such as submitting an incident or updating a status here)*
